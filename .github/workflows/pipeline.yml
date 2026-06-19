@@ -14,58 +14,56 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      # ── 0. Checkout YOUR pipeline repo ──────────────────────────────────────
+      # ── 0. Checkout YOUR pipeline repo ──────────────────────────────────
       - name: Checkout pipeline repo
         uses: actions/checkout@v4
 
-      # ── 1. Clone the TARGET repo (user's C++ code) ──────────────────────────
+      # ── 1. Clone the TARGET repo ─────────────────────────────────────────
       - name: Clone target repo
         run: |
           git clone "${{ github.event.inputs.target_repo }}" /tmp/target_repo
-          echo "TARGET_REPO=${{ github.event.inputs.target_repo }}" >> $GITHUB_ENV
-          # extract owner/repo from URL for GitHub API calls later
           REPO_PATH=$(echo "${{ github.event.inputs.target_repo }}" | sed 's|https://github.com/||')
           echo "REPO_PATH=$REPO_PATH" >> $GITHUB_ENV
 
-      # ── 2. Install system dependencies ──────────────────────────────────────
+      # ── 2. Install system dependencies ───────────────────────────────────
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
-          # C++ compilation tools
-          sudo apt-get install -y gcc g++ clang clang-tools
-          # libFuzzer and ASan come with clang
-          sudo apt-get install -y libfuzzer-14-dev || true
-          # Cppcheck for broader CWE static analysis
-          sudo apt-get install -y cppcheck
-          # cosign for cryptographic signing
+          sudo apt-get install -y \
+            cppcheck \
+            clang \
+            clang-tools \
+            libfuzzer-14-dev \
+            gcc \
+            g++
+          pip install flawfinder
+          # install cosign
           curl -sSfL https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64 \
             -o /usr/local/bin/cosign && chmod +x /usr/local/bin/cosign
 
-      # ── 3. Install Python dependencies ──────────────────────────────────────
+      # ── 3. Install Python dependencies ───────────────────────────────────
       - name: Install Python dependencies
         run: |
-          pip install --quiet \
-            semgrep \
+          pip install \
             tree-sitter \
             tree-sitter-languages \
             requests \
-            PyYAML \
-            pygments
+            PyYAML
 
-      # ── 4. Run pipeline ─────────────────────────────────────────────────────
+      # ── 4. Run pipeline ───────────────────────────────────────────────────
       - name: Run SecOps Pipeline
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          QWEN_URL: ${{ secrets.QWEN_URL }}           # your ngrok URL e.g. https://abc123.ngrok.io
+          QWEN_URL: ${{ secrets.QWEN_URL }}
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
-          TARGET_REPO_PATH: ${{ env.REPO_PATH }}
+          REPO_PATH: ${{ env.REPO_PATH }}
         run: |
           python pipeline/orchestrator.py \
             --target /tmp/target_repo \
             --repo-path "$REPO_PATH"
 
-      # ── 5. Upload pipeline report as artifact ───────────────────────────────
+      # ── 5. Upload report ──────────────────────────────────────────────────
       - name: Upload pipeline report
         if: always()
         uses: actions/upload-artifact@v4
